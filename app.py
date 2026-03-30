@@ -25,19 +25,19 @@ def save_users(users):
 @app.route('/', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        insta_id = request.form.get('insta_id')
+        contact = request.form.get('contact')
         password = request.form.get('password')
         users = load_users()
 
         # Auto-register pending approval
-        if insta_id not in users:
-            users[insta_id] = {"password": password, "approved": None}
+        if contact not in users:
+            users[contact] = {"password": password, "approved": None}
             save_users(users)
 
-        user = users[insta_id]
+        user = users[contact]
 
         if user['approved'] is True:
-            session['user'] = insta_id
+            session['user'] = contact
             return redirect(url_for('game'))
         elif user['approved'] is False:
             return render_template_string("""
@@ -67,7 +67,7 @@ def login():
                 text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
             }
             form {
-                background: rgba(255,255,255,0.8);
+                background: rgba(255,255,255,0.85);
                 display:inline-block;
                 padding: 30px;
                 border-radius: 20px;
@@ -77,7 +77,7 @@ def login():
             input {
                 padding:10px;
                 margin:10px 0;
-                width: 200px;
+                width: 220px;
                 border-radius:10px;
                 border:1px solid #ccc;
             }
@@ -91,24 +91,24 @@ def login():
                 cursor:pointer;
                 transition:0.3s;
             }
-            button:hover {
-                background: #ff3b2e;
-            }
+            button:hover { background: #ff3b2e; }
             a {
                 display:block;
                 margin-top:20px;
                 color:#fff;
                 text-decoration:none;
             }
+            p.note { font-size:14px; color:#333; margin-top:10px; }
         </style>
     </head>
     <body>
         <h1>Login / Request Access</h1>
         <form method='POST'>
-            <input name='insta_id' placeholder='Instagram ID' required><br>
+            <input name='contact' placeholder='Mobile Number or Email' required><br>
             <input type='password' name='password' placeholder='Password' required><br>
             <button type='submit'>Submit</button>
         </form>
+        <p class="note">⚡ Note: If you win the game, you will get a notification on your mobile number or email.</p>
         <a href="/admin">Admin Panel</a>
     </body>
     </html>
@@ -185,7 +185,7 @@ def game():
         let frame = 0;
         let score = 0;
         let gameOver = false;
-        let gap = 200; // Increased gap
+        let gap = 200;
 
         document.addEventListener('keydown', e => {{ if(e.code==='Space') flap(); }});
         document.addEventListener('click', flap);
@@ -211,7 +211,11 @@ def game():
             scoreEl.textContent = score;
             messageEl.textContent = "";
 
-            fetch('/increment_attempts');  // increment attempts on game over
+            fetch('/increment_attempts')
+                .then(() => fetch('/get_attempts')
+                .then(res => res.json())
+                .then(data => {{ attemptsEl.textContent = data.attempts; }}));
+
             requestAnimationFrame(draw);
         }}
 
@@ -266,11 +270,13 @@ def game():
 # ===== INCREMENT ATTEMPTS =====
 @app.route('/increment_attempts')
 def increment_attempts():
-    if 'attempts' in session:
-        session['attempts'] += 1
-    else:
-        session['attempts'] = 1
+    session['attempts'] = session.get('attempts', 0) + 1
     return '', 204
+
+# ===== GET ATTEMPTS =====
+@app.route('/get_attempts')
+def get_attempts():
+    return {"attempts": session.get("attempts", 0)}
 
 # ===== ADMIN PANEL =====
 @app.route('/admin', methods=['GET', 'POST'])
@@ -347,6 +353,3 @@ def logout():
 # ===== RUN APP =====
 if __name__ == '__main__':
     app.run(debug=True)
-
-
-
