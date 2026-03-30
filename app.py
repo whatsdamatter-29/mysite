@@ -25,19 +25,22 @@ def save_users(users):
 @app.route('/', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        contact = request.form.get('contact')
-        password = request.form.get('password')
+        contact = request.form.get('contact')      # mobile/email
+        insta_id = request.form.get('insta_id')    # Instagram ID
+        password = request.form.get('password')    # password
         users = load_users()
 
+        key = f"{contact}|{insta_id}"  # unique key per user
+
         # Auto-register pending approval
-        if contact not in users:
-            users[contact] = {"password": password, "approved": None}
+        if key not in users:
+            users[key] = {"password": password, "approved": None}
             save_users(users)
 
-        user = users[contact]
+        user = users[key]
 
         if user['approved'] is True:
-            session['user'] = contact
+            session['user'] = key
             return redirect(url_for('game'))
         elif user['approved'] is False:
             return render_template_string("""
@@ -105,6 +108,7 @@ def login():
         <h1>Login / Request Access</h1>
         <form method='POST'>
             <input name='contact' placeholder='Mobile Number or Email' required><br>
+            <input name='insta_id' placeholder='Instagram ID' required><br>
             <input type='password' name='password' placeholder='Password' required><br>
             <button type='submit'>Submit</button>
         </form>
