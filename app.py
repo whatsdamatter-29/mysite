@@ -120,6 +120,9 @@ def game():
     if 'user' not in session:
         return redirect(url_for('login'))
 
+    if 'attempts' not in session:
+        session['attempts'] = 0
+
     return render_template_string(f"""
     <!DOCTYPE html>
     <html>
@@ -165,6 +168,7 @@ def game():
         <div id="gameContainer">
             <canvas id="gameCanvas" width="400" height="600"></canvas>
             <p>Score: <span id="score">0</span></p>
+            <p>Attempts: <span id="attempts">{session['attempts']}</span></p>
             <p id="message"></p>
         </div>
         <a href="/logout">Logout</a>
@@ -173,6 +177,7 @@ def game():
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const scoreEl = document.getElementById('score');
+        const attemptsEl = document.getElementById('attempts');
         const messageEl = document.getElementById('message');
 
         let bird = {{ x:50, y:300, width:30, height:30, velocity:0, gravity:0.6, lift:-10 }};
@@ -180,6 +185,7 @@ def game():
         let frame = 0;
         let score = 0;
         let gameOver = false;
+        let gap = 200; // Increased gap
 
         document.addEventListener('keydown', e => {{ if(e.code==='Space') flap(); }});
         document.addEventListener('click', flap);
@@ -190,7 +196,6 @@ def game():
         }}
 
         function createPipe() {{
-            let gap = 150;
             let topHeight = Math.floor(Math.random()*300)+50;
             pipes.push({{x:400, y:0, width:50, height:topHeight}});
             pipes.push({{x:400, y:topHeight+gap, width:50, height:600}});
@@ -205,6 +210,8 @@ def game():
             gameOver = false;
             scoreEl.textContent = score;
             messageEl.textContent = "";
+
+            fetch('/increment_attempts');  // increment attempts on game over
             requestAnimationFrame(draw);
         }}
 
@@ -255,6 +262,15 @@ def game():
     </body>
     </html>
     """)
+
+# ===== INCREMENT ATTEMPTS =====
+@app.route('/increment_attempts')
+def increment_attempts():
+    if 'attempts' in session:
+        session['attempts'] += 1
+    else:
+        session['attempts'] = 1
+    return '', 204
 
 # ===== ADMIN PANEL =====
 @app.route('/admin', methods=['GET', 'POST'])
